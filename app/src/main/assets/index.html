@@ -125,7 +125,10 @@ body{background:var(--felt);color:var(--ink);font-family:var(--body);font-size:1
     <div class="overlay" id="setupWrap">
       <section class="sheet" aria-labelledby="setupTitle">
         <h2 id="setupTitle">Who's playing?</h2>
-        <p class="sub">Four armies, one cross board. Partners sit opposite each other.</p>
+        <p class="sub" id="setupSub">Four armies, one cross board. Partners sit opposite each other.</p>
+        <div class="seatrow" style="margin-bottom:2px"><div class="who"><b>Game mode</b></div>
+          <div class="seg" id="modeSeg" role="group" aria-label="Game mode"><button data-mode="teams">2 vs 2</button><button data-mode="ffa">Free for all</button></div>
+        </div>
         <div class="presets" id="presets">
           <button class="preset" data-preset="solo" aria-pressed="false">Solo</button>
           <button class="preset" data-preset="partners" aria-pressed="false">2 friends, same team</button>
@@ -136,13 +139,7 @@ body{background:var(--felt);color:var(--ink);font-family:var(--body);font-size:1
         <div class="seatrow"><div class="who"><b>Computer strength</b></div>
           <div class="seg" id="lvl"><button data-l="0">Easy</button><button data-l="1">Normal</button><button data-l="2">Hard</button></div>
         </div>
-        <ul class="rules">
-          <li>Pieces move one square <b>diagonally</b>, forward toward the far arm.</li>
-          <li><b>Capturing is mandatory</b>, and you must take <b>the most pieces</b> possible.</li>
-          <li>Pawns capture forward only. Cross to the far side of the <b>gold square</b> to become a <b>dama</b>.</li>
-          <li>A dama <b>flies</b> any distance along a diagonal and captures from afar.</li>
-          <li>Wipe out both rival armies to win.</li>
-        </ul>
+        <ul class="rules" id="rulesList"></ul>
         <button class="btn primary" id="startBtn">Start game</button>
       </section>
     </div>
@@ -182,42 +179,52 @@ function ENGINE(){
   const NEXT=new Int16Array(SZ*4).fill(-1);
   for(let s=0;s<SZ;s++){ if(!PLAY[s])continue; const r=(s/N)|0,c=s%N;
     for(let d=0;d<4;d++){const r2=r+DR[d],c2=c+DC[d]; if(r2>=0&&r2<N&&c2>=0&&c2<N&&PLAY[r2*N+c2]) NEXT[s*4+d]=r2*N+c2;} }
-  // forward diagonals per player: 0 Red (bottom, moves up), 1 Green (left, moves right), 2 Blue (top, moves down), 3 Yellow (right, moves left)
+  // forward diagonals per player: 0 Red (bottom), 1 Green (left), 2 Blue (top), 3 Yellow (right)
   const FWD=[[0,1],[1,3],[2,3],[0,2]];
   const owner=v=>(v-1)>>1, isKing=v=>(v-1)&1;
+  // in free-for-all every player stands alone; in teams, 0+2 face 1+3
+  const friendly=(v,p,ffa)=> ffa ? owner(v)===p : (owner(v)&1)===(p&1);
   function promoted(s,p){const r=(s/N)|0,c=s%N; return p===0?r<=4:p===1?c>=11:p===2?r>=11:c<=4;}
   function progress(s,p){const r=(s/N)|0,c=s%N; return p===0?15-r:p===1?c:p===2?r:15-c;}
   function initBoard(){const b=new Int8Array(SZ);
     for(let s=0;s<SZ;s++){ if(!PLAY[s])continue; const r=(s/N)|0,c=s%N;
       if(r>=13)b[s]=1; else if(r<=2)b[s]=5; else if(c<=2)b[s]=3; else if(c>=13)b[s]=7; }
     return b;}
-  function dfsP(b,s,p,team,path,caps,out){
+  function counts(b){const n=[0,0,0,0]; for(let s=0;s<SZ;s++){const v=b[s]; if(v)n[owner(v)]++;} return n;}
+  function teamCount(b,t){let n=0; for(let s=0;s<SZ;s++){const v=b[s]; if(v&&(owner(v)&1)===t)n++;} return n;}
+  function alive(b){const n=counts(b),out=[]; for(let i=0;i<4;i++) if(n[i]>0) out.push(i); return out;}
+  function nextPlayer(b,p,ffa){
+    if(!ffa) return (p+1)&3;
+    for(let i=1;i<=4;i++){ const q=(p+i)&3; if(counts(b)[q]>0) return q; }
+    return p;
+  }
+  function dfsP(b,s,p,ffa,path,caps,out){
     let ext=false;
     for(const d of FWD[p]){
       const m=NEXT[s*4+d]; if(m<0)continue; const v=b[m];
-      if(!v||(owner(v)&1)===team||caps.includes(m))continue;
+      if(!v||friendly(v,p,ffa)||caps.includes(m))continue;
       const l=NEXT[m*4+d]; if(l<0||b[l]!==0)continue;
-      ext=true; path.push(l); caps.push(m); dfsP(b,l,p,team,path,caps,out); path.pop(); caps.pop();
+      ext=true; path.push(l); caps.push(m); dfsP(b,l,p,ffa,path,caps,out); path.pop(); caps.pop();
     }
     if(!ext&&caps.length) out.push({path:path.slice(),caps:caps.slice()});
   }
-  function dfsK(b,s,team,path,caps,out){
+  function dfsK(b,s,p,ffa,path,caps,out){
     let ext=false;
     for(let d=0;d<4;d++){
       let q=NEXT[s*4+d];
       while(q>=0&&b[q]===0) q=NEXT[q*4+d];
       if(q<0)continue; const v=b[q];
-      if((owner(v)&1)===team||caps.includes(q))continue;
+      if(friendly(v,p,ffa)||caps.includes(q))continue;
       let l=NEXT[q*4+d];
-      while(l>=0&&b[l]===0){ ext=true; path.push(l); caps.push(q); dfsK(b,l,team,path,caps,out); path.pop(); caps.pop(); l=NEXT[l*4+d]; }
+      while(l>=0&&b[l]===0){ ext=true; path.push(l); caps.push(q); dfsK(b,l,p,ffa,path,caps,out); path.pop(); caps.pop(); l=NEXT[l*4+d]; }
     }
     if(!ext&&caps.length) out.push({path:path.slice(),caps:caps.slice()});
   }
-  function genMoves(b,p){
-    const team=p&1; let best=0, caps=[];
+  function genMoves(b,p,ffa){
+    let best=0, caps=[];
     for(let s=0;s<SZ;s++){ const v=b[s]; if(!v||owner(v)!==p)continue;
       b[s]=0; const found=[];
-      if(isKing(v)) dfsK(b,s,team,[s],[],found); else dfsP(b,s,p,team,[s],[],found);
+      if(isKing(v)) dfsK(b,s,p,ffa,[s],[],found); else dfsP(b,s,p,ffa,[s],[],found);
       b[s]=v;
       for(const m of found){ if(m.caps.length>best){best=m.caps.length;caps=[m];} else if(m.caps.length===best)caps.push(m); }
     }
@@ -235,15 +242,24 @@ function ENGINE(){
     if(!isKing(v)&&promoted(to,owner(v))) v+=1;
     nb[to]=v; return nb;
   }
-  function counts(b){const n=[0,0,0,0]; for(let s=0;s<SZ;s++){const v=b[s]; if(v)n[owner(v)]++;} return n;}
-  function teamCount(b,t){let n=0; for(let s=0;s<SZ;s++){const v=b[s]; if(v&&(owner(v)&1)===t)n++;} return n;}
-  function evaluate(b){
+  function pieceValue(b,q,v){
+    const p=owner(v); let val;
+    if(isKing(v)) val=310; else { const g=progress(q,p); val=100+g*4+(g>=9?12:0); }
+    const r=(q/N)|0,c=q%N; val+=6-(Math.abs(r-7.5)+Math.abs(c-7.5))*0.35;
+    return val;
+  }
+  function evaluate(b){   // teams: positive favours team 0
     let s=0;
-    for(let q=0;q<SZ;q++){ const v=b[q]; if(!v)continue; const p=owner(v); let val;
-      if(isKing(v)) val=310; else { const g=progress(q,p); val=100+g*4+(g>=9?12:0); }
-      const r=(q/N)|0,c=q%N; val+=6-(Math.abs(r-7.5)+Math.abs(c-7.5))*0.35;
-      if(p&1)s-=val; else s+=val; }
+    for(let q=0;q<SZ;q++){ const v=b[q]; if(!v)continue;
+      if(owner(v)&1) s-=pieceValue(b,q,v); else s+=pieceValue(b,q,v); }
     return s;
+  }
+  function evaluateFFA(b,me){   // free-for-all: my strength against my strongest rival
+    const t=[0,0,0,0];
+    for(let q=0;q<SZ;q++){ const v=b[q]; if(!v)continue; t[owner(v)]+=pieceValue(b,q,v); }
+    let worst=-1e9; for(let i=0;i<4;i++) if(i!==me&&t[i]>worst) worst=t[i];
+    const live=alive(b).length;
+    return t[me]-worst*0.78-(live-1)*40;
   }
   const ABORT={}; let deadline=0, nodes=0;
   function search(b,p,depth,alpha,beta,q){
@@ -251,7 +267,7 @@ function ENGINE(){
     const team=p&1;
     if(teamCount(b,team)===0) return -100000-depth*10;
     if(teamCount(b,team^1)===0) return 100000+depth*10;
-    const ms=genMoves(b,p);
+    const ms=genMoves(b,p,false);
     const capt=ms.length>0&&ms[0].caps.length>0;
     if(depth<=0&&(!capt||q>=4)){ const e=evaluate(b); return team?-e:e; }
     if(!ms.length) return -search(b,(p+1)&3,depth-1,-beta,-alpha,q);
@@ -261,8 +277,38 @@ function ENGINE(){
     }
     return alpha;
   }
-  function bestMove(b,p,level){
-    const ms=genMoves(b,p); if(ms.length<=1) return 0;
+  // free-for-all: assume every rival plays against me (paranoid search)
+  function searchFFA(b,p,me,depth,alpha,beta,q){
+    if((++nodes&1023)===0&&Date.now()>deadline) throw ABORT;
+    const live=alive(b);
+    if(!live.includes(me)) return -100000-depth*10;
+    if(live.length===1) return 100000+depth*10;
+    const ms=genMoves(b,p,true);
+    const capt=ms.length>0&&ms[0].caps.length>0;
+    if(depth<=0&&(!capt||q>=4)) return evaluateFFA(b,me);
+    if(!ms.length){
+      const nx=nextPlayer(b,p,true);
+      if(nx===p) return evaluateFFA(b,me);
+      return searchFFA(b,nx,me,depth-1,alpha,beta,q);
+    }
+    const nq=depth<=0?q+1:q;
+    if(p===me){
+      for(const m of ms){
+        const nb=apply(b,m);
+        const v=searchFFA(nb,nextPlayer(nb,p,true),me,depth-1,alpha,beta,nq);
+        if(v>alpha){alpha=v; if(alpha>=beta)break;}
+      }
+      return alpha;
+    }
+    for(const m of ms){
+      const nb=apply(b,m);
+      const v=searchFFA(nb,nextPlayer(nb,p,true),me,depth-1,alpha,beta,nq);
+      if(v<beta){beta=v; if(beta<=alpha)break;}
+    }
+    return beta;
+  }
+  function bestMove(b,p,level,ffa){
+    const ms=genMoves(b,p,!!ffa); if(ms.length<=1) return 0;
     const cfg=level===0?{d:1,t:200,noise:70}:level===1?{d:4,t:800,noise:10}:{d:10,t:1500,noise:0};
     deadline=Date.now()+cfg.t; nodes=0;
     let order=ms.map((m,i)=>i), bestI=order[0];
@@ -270,7 +316,9 @@ function ENGINE(){
       try{
         let alpha=-1e9, bi=order[0]; const sc=[];
         for(const i of order){
-          let v=-search(apply(b,ms[i]),(p+1)&3,d-1,-1e9,-alpha,0);
+          let v;
+          if(ffa){ const nb=apply(b,ms[i]); v=searchFFA(nb,nextPlayer(nb,p,true),p,d-1,alpha,1e9,0); }
+          else v=-search(apply(b,ms[i]),(p+1)&3,d-1,-1e9,-alpha,0);
           if(cfg.noise) v+=(Math.random()*2-1)*cfg.noise;
           sc.push([i,v]); if(v>alpha){alpha=v;bi=i;}
         }
@@ -282,7 +330,7 @@ function ENGINE(){
     if(level===0&&Math.random()<0.2) return Math.floor(Math.random()*ms.length);
     return bestI;
   }
-  return {N,SZ,OK,PLAY,owner,isKing,initBoard,genMoves,apply,counts,teamCount,bestMove};
+  return {N,SZ,OK,PLAY,owner,isKing,initBoard,genMoves,apply,counts,teamCount,alive,nextPlayer,bestMove};
 }
 
 const E=ENGINE();
@@ -290,16 +338,16 @@ const E=ENGINE();
 /* computer runs in a worker so the animation never stutters */
 let worker=null, reqSeq=0; const pending=new Map();
 try{
-  const src=`const E=(${ENGINE.toString()})();onmessage=e=>{const d=e.data;let i=0;try{i=E.bestMove(Int8Array.from(d.b),d.p,d.level);}catch(x){}postMessage({id:d.id,i});};`;
+  const src=`const E=(${ENGINE.toString()})();onmessage=e=>{const d=e.data;let i=0;try{i=E.bestMove(Int8Array.from(d.b),d.p,d.level,d.ffa);}catch(x){}postMessage({id:d.id,i});};`;
   worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
   worker.onmessage=e=>{const cb=pending.get(e.data.id); pending.delete(e.data.id); if(cb)cb(e.data.i);};
   worker.onerror=()=>{ worker=null; for(const [id,cb] of pending){ pending.delete(id); cb(-1); } };
 }catch(e){ worker=null; }
-function askBot(b,p,level,cb){
-  const fallback=()=>setTimeout(()=>cb(E.bestMove(b.slice(),p,level)),40);
+function askBot(b,p,level,ffa,cb){
+  const fallback=()=>setTimeout(()=>cb(E.bestMove(b.slice(),p,level,ffa)),40);
   if(!worker) return fallback();
   const id=++reqSeq; pending.set(id,i=>{ if(i<0) fallback(); else cb(i); });
-  worker.postMessage({id,b:Array.from(b),p,level});
+  worker.postMessage({id,b:Array.from(b),p,level,ffa});
 }
 
 /* ================= CONSTANTS & STATE ================= */
@@ -324,12 +372,13 @@ const view={a:0,t:0};
 let S=null, sel=null, anim=null, thinking=-1, botId=0, shake=0, tnow=0;
 const pop=new Map(), parts=[], dust=[];
 
-let prefs={seats:['human','bot','bot','bot'],level:1,sound:true};
+let prefs={seats:['human','bot','bot','bot'],level:1,sound:true,mode:'teams'};
 try{const p=JSON.parse(localStorage.getItem('dama-arbaa')||'null'); if(p&&Array.isArray(p.seats)&&p.seats.length===4) prefs=Object.assign(prefs,p);}catch(e){}
 function savePrefs(){try{localStorage.setItem('dama-arbaa',JSON.stringify(prefs));}catch(e){}}
 
-function freshState(){return{b:E.initBoard(),turn:0,started:false,over:false,noCap:0,passes:0,last:null,hist:[],moves:[],plies:0,capt:[0,0]};}
+function freshState(){return{b:E.initBoard(),turn:0,started:false,over:false,noCap:0,passes:0,last:null,hist:[],moves:[],plies:0,capt:[0,0,0,0]};}
 const humans=()=>prefs.seats.map((s,i)=>s==='human'?i:-1).filter(i=>i>=0);
+const isFFA=()=>prefs.mode==='ffa';
 const isHumanTurn=()=>S&&S.started&&!S.over&&!anim&&prefs.seats[S.turn]==='human'&&S.moves.length>0;
 
 /* ================= SOUND & HAPTICS ================= */
@@ -622,7 +671,9 @@ const seatsEl=$('seats');
 function roleLabel(p){ if(prefs.seats[p]!=='human') return 'CPU'; const hs=humans(); return hs.length===1?'You':'P'+(hs.indexOf(p)+1); }
 function buildSeatChips(){
   seatsEl.innerHTML='';
-  [0,2,'vs',1,3].forEach(p=>{
+  const order=isFFA()?[0,1,2,3]:[0,2,'vs',1,3];
+  seatsEl.style.gridTemplateColumns=isFFA()?'repeat(4,1fr)':'1fr 1fr auto 1fr 1fr';
+  order.forEach(p=>{
     if(p==='vs'){ const s=document.createElement('span'); s.className='vs'; s.textContent='vs'; seatsEl.appendChild(s); return; }
     const d=document.createElement('div'); d.className='seat'; d.dataset.p=p; d.style.setProperty('--c',CSSC[p]);
     d.innerHTML=`<div class="l1"><span class="sw"></span><span class="sn">${NAMES[p]}</span><span class="think" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="l2"><span class="sr"></span><span class="sc"></span></div>`;
@@ -655,12 +706,14 @@ function aimView(){
 function startTurn(){
   if(!S.started||S.over)return;
   sel=null; thinking=-1;
-  const ms=E.genMoves(S.b,S.turn); S.moves=ms;
+  const ms=E.genMoves(S.b,S.turn,isFFA()); S.moves=ms;
   if(!ms.length){
     S.passes++; renderSeats();
-    if(S.passes>=4) return endGame(-1,'Every army is blocked.');
-    if(E.counts(S.b)[S.turn]>0) toast(`${NAMES[S.turn]} is blocked and skips a turn`);
-    const id=++botId; setTimeout(()=>{ if(id!==botId||S.over)return; S.turn=(S.turn+1)&3; startTurn(); }, E.counts(S.b)[S.turn]>0?900:150);
+    const live=E.alive(S.b).length;
+    if(S.passes>=Math.max(2,live)) return endGame(-1,'Every army is blocked.');
+    const stuck=E.counts(S.b)[S.turn]>0;
+    if(stuck) toast(`${NAMES[S.turn]} is blocked and skips a turn`);
+    const id=++botId; setTimeout(()=>{ if(id!==botId||S.over)return; S.turn=E.nextPlayer(S.b,S.turn,isFFA()); startTurn(); }, stuck?900:150);
     return;
   }
   aimView();
@@ -671,7 +724,7 @@ function startTurn(){
   } else {
     thinking=S.turn; renderSeats();
     const id=++botId, t0=performance.now(), b=S.b, p=S.turn;
-    askBot(b,p,prefs.level,i=>{
+    askBot(b,p,prefs.level,isFFA(),i=>{
       if(id!==botId||S.over)return;
       const wait=Math.max(0,420-(performance.now()-t0));
       setTimeout(()=>{ if(id!==botId||S.over)return; thinking=-1; playMove(ms[i]||ms[0]); },wait);
@@ -680,34 +733,45 @@ function startTurn(){
 }
 function playMove(m){
   S.hist.push({b:S.b.slice(),turn:S.turn,noCap:S.noCap,passes:S.passes,last:S.last,plies:S.plies,capt:S.capt.slice()});
-  sel=null; const v=S.b[m.path[0]], p=S.turn; renderSeats();
+  sel=null; const v=S.b[m.path[0]], p=S.turn, wasAlive=E.alive(S.b); renderSeats();
   startAnim(m,v,()=>{
     const wasKing=E.isKing(v), to=m.path[m.path.length-1];
     S.b=E.apply(S.b,m); S.last={path:m.path.slice(),p}; S.plies++; S.passes=0;
-    if(m.caps.length){ S.noCap=0; S.capt[p&1]+=m.caps.length; } else S.noCap=wasKing?S.noCap+1:0;
+    if(m.caps.length){ S.noCap=0; S.capt[isFFA()?p:(p&1)]+=m.caps.length; } else S.noCap=wasKing?S.noCap+1:0;
     if(!wasKing&&E.isKing(S.b[to])) promoteFx(to,p);
     renderSeats();
-    if(E.teamCount(S.b,0)===0) return endGame(1);
-    if(E.teamCount(S.b,1)===0) return endGame(0);
+    if(isFFA()){
+      const live=E.alive(S.b);
+      if(live.length<=1) return endGame(live[0]!==undefined?live[0]:-1);
+      if(wasAlive.length>live.length){
+        const gone=wasAlive.filter(x=>!live.includes(x));
+        for(const g of gone) banner(`${NAMES[g]} is out`,g);
+      }
+    } else {
+      if(E.teamCount(S.b,0)===0) return endGame(1);
+      if(E.teamCount(S.b,1)===0) return endGame(0);
+    }
     if(S.noCap>=80) return endGame(-1,'Eighty dama moves passed without a capture.');
-    S.turn=(S.turn+1)&3; startTurn();
+    S.turn=E.nextPlayer(S.b,S.turn,isFFA()); startTurn();
   });
 }
-function endGame(team,why){
+function endGame(who,why){
   S.over=true; botId++; thinking=-1; sel=null; renderSeats();
-  const hs=humans(); const youWon=hs.length&&team>=0&&hs.every(h=>(h&1)===team);
-  const youLost=hs.length&&team>=0&&hs.every(h=>(h&1)!==team);
-  $('endEyebrow').textContent=team<0?'Draw':youWon?'Victory':youLost?'Defeat':'Game over';
-  $('endTitle').textContent=team<0?'The game is a draw':`${TEAMNAME[team]} win`;
-  $('endText').textContent=team<0?why:`${S.capt[team]} pieces captured in ${Math.ceil(S.plies/4)} rounds.`;
-  setTimeout(()=>{ $('endWrap').hidden=false; confetti(team); chime(team<0?[392,349,330]:[523,659,784,1047,1319],0.11,0.16); },650);
+  const ffa=isFFA(), hs=humans();
+  const won=p=>ffa?p===who:(p&1)===who;
+  const youWon=hs.length&&who>=0&&hs.some(won);
+  const youLost=hs.length&&who>=0&&!hs.some(won);
+  $('endEyebrow').textContent=who<0?'Draw':youWon?'Victory':youLost?'Defeat':'Game over';
+  $('endTitle').textContent=who<0?'The game is a draw':ffa?`${NAMES[who]} is the last one standing`:`${TEAMNAME[who]} win`;
+  $('endText').textContent=who<0?why:`${S.capt[who]} pieces captured in ${Math.ceil(S.plies/(ffa?E.alive(S.b).length||1:4))} rounds.`;
+  setTimeout(()=>{ $('endWrap').hidden=false; confetti(who<0?-1:ffa?who%2:who); chime(who<0?[392,349,330]:[523,659,784,1047,1319],0.11,0.16); },650);
 }
 function newGame(){
   botId++; anim=null; parts.length=0; pop.clear(); thinking=-1;
   S=freshState(); S.started=true; camT.z=1; camT.x=0; camT.y=0; updateZoomLbl();
   $('endWrap').hidden=true; $('setupWrap').hidden=true;
   aimView(); view.a=view.t; renderSeats();
-  banner(humans().length===1?`You are ${NAMES[humans()[0]]}`:'Red opens', humans().length===1?humans()[0]:0);
+  banner(humans().length===1?`You are ${NAMES[humans()[0]]}`:isFFA()?'Every army for itself':'Red opens', humans().length===1?humans()[0]:0);
   chime([392,523],0.1,0.12);
   setTimeout(startTurn,700);
 }
@@ -794,8 +858,9 @@ $('soundBtn').addEventListener('click',()=>{ prefs.sound=!prefs.sound; savePrefs
 const PRESETS={solo:['human','bot','bot','bot'],partners:['human','bot','human','bot'],versus:['human','human','bot','bot'],four:['human','human','human','human']};
 function buildSeatList(){
   const list=$('seatList'); list.innerHTML='';
-  [[0,2],[1,3]].forEach((pair,t)=>{
-    const lbl=document.createElement('div'); lbl.className='teamlbl'; lbl.textContent=`Team ${TEAMNAME[t]}`; list.appendChild(lbl);
+  const groups=isFFA()?[[0,1,2,3]]:[[0,2],[1,3]];
+  groups.forEach((pair,t)=>{
+    if(!isFFA()){ const lbl=document.createElement('div'); lbl.className='teamlbl'; lbl.textContent=`Team ${TEAMNAME[t]}`; list.appendChild(lbl); }
     pair.forEach(p=>{
       const row=document.createElement('div'); row.className='seatrow';
       row.innerHTML=`<div class="who"><span class="sw" style="--c:${CSSC[p]}"></span><span><b>${NAMES[p]}</b> <small>${SIDES[p]} arm</small></span></div>
@@ -805,15 +870,35 @@ function buildSeatList(){
   });
   list.querySelectorAll('button[data-seat]').forEach(b=>b.addEventListener('click',()=>{ prefs.seats[+b.dataset.seat]=b.dataset.v; savePrefs(); syncSetup(); }));
 }
+const RULES_COMMON=[
+  'Pieces move one square <b>diagonally</b>, forward toward the far arm.',
+  '<b>Capturing is mandatory</b>, and you must take <b>the most pieces</b> possible.',
+  'Pawns capture forward only. Cross to the far side of the <b>gold square</b> to become a <b>dama</b>.',
+  'A dama <b>flies</b> any distance along a diagonal and captures from afar.'];
 function syncSetup(){
+  const ffa=isFFA();
+  $('setupSub').textContent=ffa
+    ? 'Four armies, one cross board. Nobody has a partner.'
+    : 'Four armies, one cross board. Partners sit opposite each other.';
+  $('rulesList').innerHTML=RULES_COMMON.concat([ffa
+    ? 'Every army fights alone. Take <b>any</b> colour. Lose all your pieces and you are out; the <b>last army standing wins</b>.'
+    : 'Red and Blue play against Green and Yellow. Wipe out both rival armies to win.'
+  ]).map(t=>`<li>${t}</li>`).join('');
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.mode===prefs.mode)));
+  buildSeatList();
   document.querySelectorAll('button[data-seat]').forEach(b=>b.setAttribute('aria-pressed',String(prefs.seats[+b.dataset.seat]===b.dataset.v)));
   document.querySelectorAll('#lvl button').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.l===prefs.level)));
-  document.querySelectorAll('.preset').forEach(b=>b.setAttribute('aria-pressed',String(PRESETS[b.dataset.preset].join()===prefs.seats.join())));
+  document.querySelectorAll('.preset').forEach(b=>{
+    b.setAttribute('aria-pressed',String(PRESETS[b.dataset.preset].join()===prefs.seats.join()));
+    if(b.dataset.preset==='partners') b.textContent=ffa?'2 friends':'2 friends, same team';
+    if(b.dataset.preset==='versus') b.textContent=ffa?'2 friends, apart':'2 friends, rivals';
+  });
   $('lvl').parentElement.style.opacity=prefs.seats.includes('bot')?1:0.4;
   buildSeatChips(); renderSeats();
 }
 document.querySelectorAll('.preset').forEach(b=>b.addEventListener('click',()=>{ prefs.seats=PRESETS[b.dataset.preset].slice(); savePrefs(); syncSetup(); }));
 document.querySelectorAll('#lvl button').forEach(b=>b.addEventListener('click',()=>{ prefs.level=+b.dataset.l; savePrefs(); syncSetup(); }));
+document.querySelectorAll('#modeSeg button').forEach(b=>b.addEventListener('click',()=>{ prefs.mode=b.dataset.mode; savePrefs(); syncSetup(); }));
 function openSetup(){ $('endWrap').hidden=true; $('setupWrap').hidden=false; syncSetup(); }
 $('startBtn').addEventListener('click',()=>{ ac(); newGame(); });
 $('againBtn').addEventListener('click',()=>{ ac(); newGame(); });
@@ -821,9 +906,10 @@ $('changeBtn').addEventListener('click',()=>{ openSetup(); });
 
 /* ================= BOOT ================= */
 function init(data){
-  buildSeatList(); buildSeatChips(); updateSoundBtn();
+  buildSeatChips(); updateSoundBtn();
   S=freshState();
   const g=data&&data.game;
+  if(g&&g.mode) prefs.mode=g.mode;
   if(g&&Array.isArray(g.b)&&g.b.length===SZ&&!g.over){
     Object.assign(S,{b:Int8Array.from(g.b),turn:g.turn|0,noCap:g.noCap|0,plies:g.plies|0,capt:g.capt||[0,0],last:g.last||null,started:true});
     $('setupWrap').hidden=true;
@@ -833,7 +919,7 @@ function init(data){
   if(S.started) setTimeout(startTurn,400);
   if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{});
 }
-try{ window.claude?.hot?.snapshot?.(()=>({game:S&&S.started&&!S.over?{b:Array.from(S.b),turn:S.turn,noCap:S.noCap,plies:S.plies,capt:S.capt,last:S.last,over:S.over}:null})); }catch(e){}
+try{ window.claude?.hot?.snapshot?.(()=>({game:S&&S.started&&!S.over?{b:Array.from(S.b),turn:S.turn,noCap:S.noCap,plies:S.plies,capt:S.capt,last:S.last,over:S.over,mode:prefs.mode}:null})); }catch(e){}
 let booted=false; const boot=d=>{ if(booted)return; booted=true; init(d||{}); };
 try{ if(window.claude?.hot?.ready) window.claude.hot.ready(boot); else boot(window.claude?.hot?.data ?? {}); }catch(e){ boot({}); }
 setTimeout(()=>boot({}),1500);
