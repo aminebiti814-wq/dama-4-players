@@ -1,0 +1,50 @@
+name: Build app
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android 16 SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Restore signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.DAMA_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "DAMA_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build .aab and .apk
+        env:
+          DAMA_KEYSTORE_PASSWORD: ${{ secrets.DAMA_KEYSTORE_PASSWORD }}
+          DAMA_KEY_ALIAS: ${{ secrets.DAMA_KEY_ALIAS }}
+          DAMA_KEY_PASSWORD: ${{ secrets.DAMA_KEY_PASSWORD }}
+        run: gradle bundleRelease assembleRelease assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dama-4-players
+          path: |
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/*.apk

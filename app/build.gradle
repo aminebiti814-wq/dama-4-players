@@ -1,0 +1,40 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.amin.dama4players"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.amin.dama4players"
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            def ks = System.getenv("DAMA_KEYSTORE_FILE")
+            if (ks != null && new File(ks).exists()) {
+                storeFile file(ks)
+                storePassword System.getenv("DAMA_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("DAMA_KEY_ALIAS")
+                keyPassword System.getenv("DAMA_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv("DAMA_KEYSTORE_FILE") != null) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
