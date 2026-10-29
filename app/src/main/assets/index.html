@@ -741,8 +741,12 @@ function handleTap(x,y){
     sel=null; return;
   }
   const q=nearest(froms);
-  if(q>=0) select(q);
-  else if(S.moves[0].caps.length) toast('A capture is waiting. Tap a glowing piece.',true);
+  if(q>=0){ select(q); return; }
+  const mine=[]; for(let i=0;i<SZ;i++){const v=S.b[i]; if(v&&E.owner(v)===S.turn) mine.push(i);}
+  const own=nearest(mine), need=S.moves[0].caps.length;
+  if(!need) toast(own>=0?'That piece has no move. Tap a glowing one.':'Tap one of the glowing pieces.',true);
+  else if(own>=0) toast(need>1?`Another piece can take ${need}. You must take the most.`:'Another piece has the capture. Tap the glowing one.',true);
+  else toast(`A capture is waiting${need>1?` — ${need} pieces`:''}. Tap a glowing piece.`,true);
 }
 const ptrs=new Map(); let gest=null;
 cv.addEventListener('pointerdown',e=>{
