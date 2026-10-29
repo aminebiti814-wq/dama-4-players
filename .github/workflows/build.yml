@@ -62,6 +62,18 @@ jobs:
       - name: Build .aab and .apk
         run: gradle bundleRelease assembleRelease assembleDebug --no-daemon --stacktrace
 
+      - name: Check the bundle is signed
+        continue-on-error: true
+        run: |
+          AAB=$(ls app/build/outputs/bundle/release/*.aab 2>/dev/null | head -1)
+          if [ -z "$AAB" ]; then echo "No bundle was produced."; exit 1; fi
+          if unzip -l "$AAB" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
+            echo "The bundle is SIGNED and ready for Google Play."
+          else
+            echo "The bundle is NOT signed - add the DAMA_SIGNING secret."
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
