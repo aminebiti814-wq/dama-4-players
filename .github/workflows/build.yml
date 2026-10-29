@@ -67,10 +67,19 @@ jobs:
         run: |
           AAB=$(ls app/build/outputs/bundle/release/*.aab 2>/dev/null | head -1)
           if [ -z "$AAB" ]; then echo "No bundle was produced."; exit 1; fi
-          if unzip -l "$AAB" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
-            echo "The bundle is SIGNED and ready for Google Play."
-          else
+          if ! unzip -l "$AAB" | grep -qE "META-INF/.*\.(RSA|EC|DSA)"; then
             echo "The bundle is NOT signed - add the DAMA_SIGNING secret."
+            exit 1
+          fi
+          EXPECTED="52:B1:B7:A2:DC:1D:A0:27:84:33:59:6E:48:4C:08:2D:E2:3B:95:3A:71:A1:D3:30:7A:0A:D6:0F:35:27:35:07"
+          unzip -o -q "$AAB" -d "$RUNNER_TEMP/aab" "META-INF/*"
+          CERT=$(ls "$RUNNER_TEMP"/aab/META-INF/*.RSA "$RUNNER_TEMP"/aab/META-INF/*.EC "$RUNNER_TEMP"/aab/META-INF/*.DSA 2>/dev/null | head -1)
+          GOT=$(keytool -printcert -file "$CERT" | grep -i "SHA256:" | head -1 | sed "s/.*SHA256: *//" | tr -d " ")
+          echo "Signed by: $GOT"
+          if [ "$GOT" = "$EXPECTED" ]; then
+            echo "This is the correct upload key. The bundle is ready for Google Play."
+          else
+            echo "WRONG KEY - expected $EXPECTED"
             exit 1
           fi
 
