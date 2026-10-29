@@ -1,4 +1,4 @@
-package com.amin.dama4players;
+package com.amin.damaroyale;
 
 import android.app.Activity;
 import android.graphics.Color;

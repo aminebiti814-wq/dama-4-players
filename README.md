@@ -1,4 +1,4 @@
-# Dama 4 Players
+# Dama Royale
 
 Four-player Algerian dama on a cross-shaped board, packaged as an offline Android app.
 

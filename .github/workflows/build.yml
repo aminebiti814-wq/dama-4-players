@@ -86,7 +86,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dama-4-players
+          name: dama-royale
           path: |
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/apk/release/*.apk

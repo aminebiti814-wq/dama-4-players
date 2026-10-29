@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace "com.amin.dama4players"
+    namespace "com.amin.damaroyale"
     compileSdk 36
 
     defaultConfig {
-        applicationId "com.amin.dama4players"
+        applicationId "com.amin.damaroyale"
         minSdk 24
         targetSdk 36
         versionCode 1
