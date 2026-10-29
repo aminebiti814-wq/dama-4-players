@@ -39,21 +39,27 @@ jobs:
 
       - name: Restore signing key
         env:
-          KEYSTORE_B64: ${{ secrets.DAMA_KEYSTORE_B64 }}
+          DAMA_SIGNING: ${{ secrets.DAMA_SIGNING }}
         run: |
-          if [ -n "${KEYSTORE_B64:-}" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
-            echo "DAMA_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
-            echo "Signing key loaded."
-          else
-            echo "No signing key secret set - building unsigned."
+          if [ -z "${DAMA_SIGNING:-}" ]; then
+            echo "No DAMA_SIGNING secret set - building unsigned."
+            exit 0
           fi
+          echo "$DAMA_SIGNING" | base64 -d > "$RUNNER_TEMP/signing.env"
+          set -a; . "$RUNNER_TEMP/signing.env"; set +a
+          echo "::add-mask::$DAMA_KEYSTORE_PASSWORD"
+          echo "::add-mask::$DAMA_KEY_PASSWORD"
+          echo "$DAMA_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          rm -f "$RUNNER_TEMP/signing.env"
+          {
+            echo "DAMA_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks"
+            echo "DAMA_KEYSTORE_PASSWORD=$DAMA_KEYSTORE_PASSWORD"
+            echo "DAMA_KEY_ALIAS=$DAMA_KEY_ALIAS"
+            echo "DAMA_KEY_PASSWORD=$DAMA_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          echo "Signing key loaded."
 
       - name: Build .aab and .apk
-        env:
-          DAMA_KEYSTORE_PASSWORD: ${{ secrets.DAMA_KEYSTORE_PASSWORD }}
-          DAMA_KEY_ALIAS: ${{ secrets.DAMA_KEY_ALIAS }}
-          DAMA_KEY_PASSWORD: ${{ secrets.DAMA_KEY_PASSWORD }}
         run: gradle bundleRelease assembleRelease assembleDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
