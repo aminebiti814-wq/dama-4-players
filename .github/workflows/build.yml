@@ -16,10 +16,22 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install Android 16 SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Android SDK
+        run: |
+          set -eu
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/android-sdk}}"
+          SM="$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+          if [ -z "$SM" ]; then
+            mkdir -p "$SDK/cmdline-tools"
+            curl -sSLo /tmp/cmdline.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/cmdline.zip -d /tmp/cmdline
+            mv /tmp/cmdline/cmdline-tools "$SDK/cmdline-tools/latest"
+            SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SM" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
+          "$SM" --sdk_root="$SDK" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -29,9 +41,12 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.DAMA_KEYSTORE_B64 }}
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
+          if [ -n "${KEYSTORE_B64:-}" ]; then
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             echo "DAMA_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+            echo "Signing key loaded."
+          else
+            echo "No signing key secret set - building unsigned."
           fi
 
       - name: Build .aab and .apk
@@ -39,12 +54,14 @@ jobs:
           DAMA_KEYSTORE_PASSWORD: ${{ secrets.DAMA_KEYSTORE_PASSWORD }}
           DAMA_KEY_ALIAS: ${{ secrets.DAMA_KEY_ALIAS }}
           DAMA_KEY_PASSWORD: ${{ secrets.DAMA_KEY_PASSWORD }}
-        run: gradle bundleRelease assembleRelease assembleDebug --no-daemon
+        run: gradle bundleRelease assembleRelease assembleDebug --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: dama-4-players
           path: |
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/apk/release/*.apk
             app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn

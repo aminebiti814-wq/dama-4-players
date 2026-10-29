@@ -1,3 +1,4 @@
+!gradle-wrapper.jar
 .gradle/
 build/
 app/build/
